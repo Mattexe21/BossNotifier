@@ -16,8 +16,9 @@ A client mod that notifies you which bosses are present in your raid.
 
 ## Installation
 
-1. Download the latest release
-2. Copy `bepinexl` folder to `SPT`
+
+1. Download the latest release from [Releases](https://github.com/Mattexe21/BossNotifier/releases/tag/Latest)
+2. Extract the zip into your SPT root folder (where `SPT.Server.exe` is)
 3. Start the game
 
 
