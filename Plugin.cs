@@ -13,12 +13,14 @@ using System.Text;
 using System;
 using HarmonyLib;
 using System.Linq;
+using BossNotifier.Fika;
+
 
 #pragma warning disable IDE0051 // Remove unused private members
 
 namespace BossNotifier
 {
-    [BepInPlugin("Mattexe.BossNotifier", "BossNotifier", "1.1.0")]
+    [BepInPlugin("Mattexe.BossNotifier", "BossNotifier", "1.2.0")]
     [BepInDependency("com.fika.core", BepInDependency.DependencyFlags.SoftDependency)]
     public class BossNotifierPlugin : BaseUnityPlugin
     {
@@ -57,7 +59,9 @@ namespace BossNotifier
         // Dictionary mapping boss types to names
         public static readonly Dictionary<WildSpawnType, string> bossNames = new Dictionary<WildSpawnType, string>() {
             { WildSpawnType.bossBully, "Reshala" },
-            { WildSpawnType.bossKnight, "Goons" },
+            { WildSpawnType.bossKnight, "Knight" },
+            { WildSpawnType.followerBigPipe, "Big Pipe" },
+            { WildSpawnType.followerBirdEye, "Birdeye" },
             { WildSpawnType.sectantPriest, "Cultists" },
             { WildSpawnType.bossTagilla, "Tagilla" },
             { WildSpawnType.bossKilla, "Killa" },
@@ -85,14 +89,33 @@ namespace BossNotifier
             "Rogues",
         };
 
+        // Goons members (for grouping)
+        public static readonly HashSet<string> goonMembers = new HashSet<string>() {
+            "Knight",
+            "Big Pipe",
+            "Birdeye",
+        };
+
         // Dictionary mapping zone IDs to names
         public static readonly Dictionary<string, string> zoneNames = new Dictionary<string, string>() {
-            {"ZoneScavBase", "Scav Base" },
+            // === CUSTOMS ===
+            {"ZoneBrige", "Bridge" },
+            {"ZoneCrossRoad", "Crossroads" },
             {"ZoneDormitory", "Dormitory" },
             {"ZoneGasStation", "Gas Station" },
+            {"ZoneFactoryCenter", "Factory Center" },
+            {"ZoneFactorySide", "Factory Side" },
+            {"ZoneOldAZS", "Old Gas Station" },
+            {"ZoneBlockPost", "Checkpoint" },
             {"ZoneTankSquare", "Old Construction" },
             {"ZoneWade", "RUAF Roadblock" },
+            {"ZoneCustoms", "Customs" },
+            {"ZoneScavBase", "Scav Base" },
+
+            // === FACTORY ===
             {"BotZone", "" },
+
+            // === INTERCHANGE ===
             {"ZoneCenterBot", "Center Floor 2" },
             {"ZoneCenter", "Center Floor 1" },
             {"ZoneOLI", "OLI" },
@@ -100,26 +123,97 @@ namespace BossNotifier
             {"ZoneGoshan", "Goshan" },
             {"ZoneIDEAPark", "IDEA Parking" },
             {"ZoneOLIPark", "OLI Parking" },
+            {"ZoneTrucks", "Trucks" },
+            {"ZoneRoad", "Road" },
+            {"ZonePowerStation", "Power Station" },
+
+            // === LABS ===
             {"BotZoneFloor1", "Floor 1" },
             {"BotZoneFloor2", "Floor 2" },
             {"BotZoneBasement", "Basement" },
             {"BotZoneGate1", "Gate 1" },
             {"BotZoneGate2", "Gate 2" },
+
+            // === LIGHTHOUSE ===
+            {"Zone_Containers", "Containers" },
+            {"Zone_Rocks", "Rocks" },
+            {"Zone_Chalet", "Chalet" },
+            {"Zone_Village", "Village" },
+            {"Zone_Bridge", "Bridge" },
+            {"Zone_OldHouse", "Old House" },
+            {"Zone_LongRoad", "Long Road" },
+            {"Zone_RoofBeach", "Roof Beach" },
+            {"Zone_DestroyedHouse", "Destroyed House" },
+            {"Zone_RoofContainers", "Roof Containers" },
+            {"Zone_Blockpost", "Checkpoint" },
+            {"Zone_RoofRocks", "Roof Rocks" },
+            {"Zone_TreatmentRocks", "Treatment Rocks" },
+            {"Zone_TreatmentContainers", "Treatment Containers" },
+            {"Zone_TreatmentBeach", "Treatment Beach" },
+            {"Zone_Hellicopter", "Helicopter" },
+            {"Zone_SniperPeak", "Sniper Peak" },
+            {"Zone_Island", "Island" },
+
+            // === RESERVE ===
             {"ZoneRailStrorage", "Rail Storage" },
             {"ZonePTOR1", "Black Pawn" },
             {"ZonePTOR2", "White Knight" },
             {"ZoneBarrack", "Barracks" },
-            {"ZoneSubStorage", "Sub Storage Д" },
-            {"ZoneSubCommand", "Sub Command Д" },
+            {"ZoneBunkerStorage", "Bunker Storage" },
+            {"ZoneSubStorage", "Sub Storage" },
+            {"ZoneSubCommand", "Sub Command" },
+
+            // === GROUND ZERO ===
+            {"ZoneSandbox", "" },
+
+            // === SHORELINE ===
+            {"ZoneGreenHouses", "Green Houses" },
+            {"ZoneIsland", "Island" },
             {"ZoneForestGasStation", "Forest Gas Station" },
-            {"ZoneForestSpawn", "Forest" },
+            {"ZoneBunker", "Bunker" },
+            {"ZoneBusStation", "Bus Station" },
             {"ZonePort", "Pier" },
+            {"ZoneForestTruck", "Forest Truck" },
+            {"ZoneForestSpawn", "Forest" },
             {"ZoneSanatorium1", "Sanatorium West" },
             {"ZoneSanatorium2", "Sanatorium East" },
-            {"ZoneMiniHouse", "Mini House" },
-            {"ZoneBrokenVill", "Broken Village" },
+            {"ZoneStartVillage", "Village" },
+            {"ZoneMeteoStation", "Weather Station" },
+            {"ZoneRailWays", "Railways" },
+            {"ZoneSmuglers", "Smugglers" },
+            {"ZonePassClose", "Pass" },
+            {"ZoneTunnel", "Tunnel" },
+
+            // === STREETS ===
+            {"ZoneSW01", "SW01" },
+            {"ZoneConstruction", "Construction" },
+            {"ZoneCarShowroom", "Car Showroom" },
+            {"ZoneCinema", "Cinema" },
+            {"ZoneFactory", "Factory" },
+            {"ZoneHotel_1", "Hotel 1" },
+            {"ZoneHotel_2", "Hotel 2" },
+            {"ZoneConcordia_1", "Concordia" },
+            {"ZoneConcordiaParking", "Concordia Parking" },
+            {"ZoneColumn", "Column" },
+            {"ZoneSW00", "SW00" },
+            {"ZoneStilo", "Stilo" },
+            {"ZoneCard1", "Cardinal" },
+            {"ZoneMvd", "MVD" },
+            {"ZoneClimova", "Klimova" },
+
+            // === WOODS ===
             {"ZoneWoodCutter", "Wood Cutter" },
-            {"ZoneCard1", "Card 1" },
+            {"ZoneHouse", "House" },
+            {"ZoneBigRocks", "Big Rocks" },
+            {"ZoneHighRocks", "High Rocks" },
+            {"ZoneMiniHouse", "Mini House" },
+            {"ZoneRedHouse", "Red House" },
+            {"ZoneScavBase2", "Scav Base" },
+            {"ZoneClearVill", "Village" },
+            {"ZoneBrokenVill", "Broken Village" },
+            {"ZoneUsecBase", "USEC Base" },
+            {"ZoneStoneBunker", "Stone Bunker" },
+            {"ZoneDepo", "Depot" },
         };
 
         private void Awake()
@@ -164,7 +258,7 @@ namespace BossNotifier
 
             showDistance = Config.Bind("3. Boss Markers", "6. Show Distance", true, "Show distance to boss on marker.");
 
-            fontSize = Config.Bind("3. Boss Markers", "7. Marker size", 64,
+            fontSize = Config.Bind("3. Boss Markers", "7. Marker Size", 64,
                 new ConfigDescription("Font size of the marker.",
                 new AcceptableValueRange<int>(32, 128)));
 
@@ -190,7 +284,9 @@ namespace BossNotifier
             // Subscribe to config changes
             Config.SettingChanged += Config_SettingChanged;
 
-            Logger.LogInfo($"Plugin BossNotifier v1.1.0 is loaded!");
+            Logger.LogInfo($"Plugin BossNotifier v1.2.0 is loaded!");
+            // Initialize Fika integration (safe even if Fika not installed)
+            FikaIntegration.Initialize();
         }
 
         // Event handler for configuration changes
@@ -304,6 +400,8 @@ namespace BossNotifier
         protected override MethodBase GetTargetMethod() => typeof(BotBoss).GetConstructors()[0];
 
         public static HashSet<string> spawnedBosses = new HashSet<string>();
+        public static HashSet<string> deadBosses = new HashSet<string>();
+        public static HashSet<string> vicinityNotificationsSent = new HashSet<string>(); // FIX: Track sent notifications
         public static Queue<string> vicinityNotifications = new Queue<string>();
 
         [PatchPostfix]
@@ -318,7 +416,17 @@ namespace BossNotifier
             BossNotifierPlugin.Log(LogLevel.Info, $"{name} has spawned at {position} on {Singleton<GameWorld>.Instance.LocationId}");
 
             spawnedBosses.Add(name);
-            vicinityNotifications.Enqueue($"{name} {(BossNotifierPlugin.pluralBosses.Contains(name) ? "have" : "has")} been detected in your vicinity.");
+
+            // Use "Goons" for vicinity notification if it's a goon member
+            string notifName = BossNotifierPlugin.goonMembers.Contains(name) ? "Goons" : name;
+
+            // FIX: Only send one vicinity notification per boss/group
+            if (!vicinityNotificationsSent.Contains(notifName))
+            {
+                vicinityNotificationsSent.Add(notifName);
+                bool isPlural = BossNotifierPlugin.pluralBosses.Contains(notifName);
+                vicinityNotifications.Enqueue($"{notifName} {(isPlural ? "have" : "has")} been detected in your vicinity.");
+            }
         }
     }
 
@@ -363,8 +471,8 @@ namespace BossNotifier
         public Player Player { get; set; }
         public string BossName { get; set; }
         public GameObject MarkerObject { get; set; }
-        public TextMesh SymbolTextMesh { get; set; }  // For the marker character (▼)
-        public TextMesh InfoTextMesh { get; set; }    // For name + distance
+        public TextMesh SymbolTextMesh { get; set; }
+        public TextMesh InfoTextMesh { get; set; }
 
         public BossMarkerInfo(Player player, string bossName, GameObject markerObject, TextMesh symbolTextMesh, TextMesh infoTextMesh)
         {
@@ -442,6 +550,9 @@ namespace BossNotifier
 
             GenerateBossNotifications();
 
+            // Notify Fika integration that raid has started (host will send boss data)
+            FikaIntegration.OnRaidStarted();
+
             if (!BossNotifierPlugin.showNotificationsOnRaidStart.Value) return;
             Invoke("SendBossNotifications", 2f);
         }
@@ -461,6 +572,9 @@ namespace BossNotifier
                     if (bossName != null && !_bossMarkers.ContainsKey(player))
                     {
                         CreateBossMarker(player, bossName);
+
+                        // FIX: Subscribe to death event for existing bosses
+                        player.OnPlayerDeadOrUnspawn += OnBossDeadOrUnspawn;
                     }
                 }
             }
@@ -516,11 +630,11 @@ namespace BossNotifier
                 // Create info object (name + distance) - child of marker
                 GameObject infoObj = new GameObject("Info");
                 infoObj.transform.SetParent(markerObj.transform);
-                infoObj.transform.localPosition = new Vector3(0, -0.015f, 0); // Below symbol
+                infoObj.transform.localPosition = new Vector3(0, -0.015f, 0);
 
                 TextMesh infoMesh = infoObj.AddComponent<TextMesh>();
                 infoMesh.text = bossName;
-                infoMesh.fontSize = 48; // Fixed size for readability
+                infoMesh.fontSize = 48;
                 infoMesh.anchor = TextAnchor.UpperCenter;
                 infoMesh.alignment = TextAlignment.Center;
                 infoMesh.color = BossNotifierPlugin.markerColor.Value;
@@ -560,11 +674,20 @@ namespace BossNotifier
             {
                 BossNotifierPlugin.Log(LogLevel.Info, $"Boss died/unspawned: {markerInfo.BossName}");
 
+                // Track dead boss
+                BotBossPatch.deadBosses.Add(markerInfo.BossName);
+
+                // Notify Fika clients of boss death
+                FikaIntegration.OnBossDeath(markerInfo.BossName);
+
                 if (markerInfo.MarkerObject != null)
                 {
                     Destroy(markerInfo.MarkerObject);
                 }
                 _bossMarkers.Remove(player);
+
+                // FIX: Regenerate notifications after boss death
+                GenerateBossNotifications();
             }
         }
         #endregion
@@ -648,16 +771,13 @@ namespace BossNotifier
                 // Line of sight check (if show through walls is disabled)
                 if (!BossNotifierPlugin.showThroughWalls.Value)
                 {
-                    Vector3 bossHeadPos = player.Position + Vector3.up * 1.5f; // Boss head height
+                    Vector3 bossHeadPos = player.Position + Vector3.up * 1.5f;
                     Vector3 direction = bossHeadPos - playerPos;
 
-                    // LayerMask for walls/terrain only (HighPolyCollider = 12, LowPolyCollider = 11)
-                    int layerMask = (1 << 12) | (1 << 11) | (1 << 16); // HighPoly, LowPoly, Terrain
+                    int layerMask = (1 << 12) | (1 << 11) | (1 << 16);
 
-                    // Raycast to check if there's a wall between player and boss
                     if (Physics.Raycast(playerPos, direction.normalized, out RaycastHit hit, distance, layerMask))
                     {
-                        // If the hit distance is significantly less than boss distance, there's a wall
                         if (hit.distance < distance - 1f)
                         {
                             markerInfo.MarkerObject.SetActive(false);
@@ -697,18 +817,15 @@ namespace BossNotifier
         {
             if (player == null || marker == null) return;
 
-            // Position above head (approximately 2.2 meters above player position)
             Vector3 headPos = player.Position + Vector3.up * 2.2f;
             marker.transform.position = headPos;
         }
 
         private void UpdateMarkerScale(GameObject marker, float distance)
         {
-            // Scale marker based on distance to keep it readable
             float baseScale = BossNotifierPlugin.markerBaseScale.Value;
             float maxScale = BossNotifierPlugin.markerMaxScale.Value;
 
-            // Scale increases with distance (so it stays visible)
             float scale = baseScale * (1f + distance / 50f);
             scale = Mathf.Clamp(scale, baseScale, maxScale);
 
@@ -731,7 +848,6 @@ namespace BossNotifier
                 bool showName = BossNotifierPlugin.showBossName.Value;
                 bool showDist = BossNotifierPlugin.showDistance.Value;
 
-                // Build text based on settings
                 if (showName && showDist)
                 {
                     markerInfo.InfoTextMesh.text = $"{markerInfo.BossName}\n{distance:F0}m";
@@ -746,13 +862,12 @@ namespace BossNotifier
                 }
                 else
                 {
-                    markerInfo.InfoTextMesh.text = ""; // Only symbol
+                    markerInfo.InfoTextMesh.text = "";
                 }
 
                 markerInfo.InfoTextMesh.color = BossNotifierPlugin.markerColor.Value;
 
-                // Adjust info position based on symbol font size (bigger symbol = more offset)
-                float fontSizeRatio = BossNotifierPlugin.fontSize.Value / 64f; // 64 is default
+                float fontSizeRatio = BossNotifierPlugin.fontSize.Value / 64f;
                 float yOffset = -0.015f * fontSizeRatio;
                 markerInfo.InfoTextMesh.transform.localPosition = new Vector3(0, yOffset, 0);
             }
@@ -796,33 +911,77 @@ namespace BossNotifier
             bool isLocationUnlocked = intelCenterLevel >= BossNotifierPlugin.intelCenterLocationUnlockLevel.Value;
             bool isDetectionUnlocked = intelCenterLevel >= BossNotifierPlugin.intelCenterDetectedUnlockLevel.Value;
 
+            // Track if we already added Goons notification
+            bool goonsNotificationAdded = false;
+            string goonsLocation = "";
+            bool goonsDetected = false;
+
             foreach (var bossSpawn in BossLocationSpawnPatch.bossesInRaid)
             {
                 if (isDayTime && bossSpawn.Key.Equals("Cultists")) continue;
 
+                // Handle Goons as a group
+                if (BossNotifierPlugin.goonMembers.Contains(bossSpawn.Key))
+                {
+                    if (!goonsNotificationAdded)
+                    {
+                        goonsLocation = bossSpawn.Value;
+                        goonsDetected = BotBossPatch.spawnedBosses.Contains("Knight") ||
+                                       BotBossPatch.spawnedBosses.Contains("Big Pipe") ||
+                                       BotBossPatch.spawnedBosses.Contains("Birdeye");
+
+                        // Check if ALL goons are dead
+                        bool allGoonsDead = BotBossPatch.deadBosses.Contains("Knight") &&
+                                           BotBossPatch.deadBosses.Contains("Big Pipe") &&
+                                           BotBossPatch.deadBosses.Contains("Birdeye");
+
+                        string goonsMessage;
+                        if (allGoonsDead)
+                        {
+                            goonsMessage = "Goons have been eliminated. ☠";
+                        }
+                        else if (!isLocationUnlocked || goonsLocation == null || goonsLocation.Equals(""))
+                        {
+                            goonsMessage = $"Goons have been located.{(isDetectionUnlocked && goonsDetected ? " ✓" : "")}";
+                        }
+                        else
+                        {
+                            goonsMessage = $"Goons have been located near {goonsLocation}.{(isDetectionUnlocked && goonsDetected ? " ✓" : "")}";
+                        }
+                        bossNotificationMessages.Add(goonsMessage);
+                        goonsNotificationAdded = true;
+                    }
+                    continue;
+                }
+
                 bool isDetected = BotBossPatch.spawnedBosses.Contains(bossSpawn.Key);
+                bool isDead = BotBossPatch.deadBosses.Contains(bossSpawn.Key);
 
                 string notificationMessage;
-                if (!isLocationUnlocked || bossSpawn.Value == null || bossSpawn.Value.Equals(""))
+
+                if (isDead)
                 {
-                    notificationMessage = $"{bossSpawn.Key} {(BossNotifierPlugin.pluralBosses.Contains(bossSpawn.Key) ? "have" : "has")} been located.{(isDetectionUnlocked && isDetected ? $" ✓" : "")}";
+                    notificationMessage = $"{bossSpawn.Key} {(BossNotifierPlugin.pluralBosses.Contains(bossSpawn.Key) ? "have" : "has")} been eliminated. ☠";
+                }
+                else if (!isLocationUnlocked || bossSpawn.Value == null || bossSpawn.Value.Equals(""))
+                {
+                    notificationMessage = $"{bossSpawn.Key} {(BossNotifierPlugin.pluralBosses.Contains(bossSpawn.Key) ? "have" : "has")} been located.{(isDetectionUnlocked && isDetected ? " ✓" : "")}";
                 }
                 else
                 {
-                    notificationMessage = $"{bossSpawn.Key} {(BossNotifierPlugin.pluralBosses.Contains(bossSpawn.Key) ? "have" : "has")} been located near {bossSpawn.Value}{(isDetectionUnlocked && isDetected ? $" ✓" : "")}";
+                    notificationMessage = $"{bossSpawn.Key} {(BossNotifierPlugin.pluralBosses.Contains(bossSpawn.Key) ? "have" : "has")} been located near {bossSpawn.Value}.{(isDetectionUnlocked && isDetected ? " ✓" : "")}";
                 }
                 bossNotificationMessages.Add(notificationMessage);
             }
         }
 
-        // Day/night check for Cultists
         private bool IsDay()
         {
             var gameWorld = Singleton<GameWorld>.Instance;
             if (gameWorld != null)
             {
                 int hour = gameWorld.GameDateTime.Calculate().Hour;
-                return hour >= 7 && hour < 22; // 7 AM - 10 PM = day
+                return hour >= 7 && hour < 22;
             }
             return false;
         }
@@ -831,13 +990,11 @@ namespace BossNotifier
         #region Cleanup
         public void OnDestroy()
         {
-            // Unregister event
             if (_gameWorld != null)
             {
                 _gameWorld.OnPersonAdd -= OnPersonAdd;
             }
 
-            // Clean up all markers
             foreach (var markerInfo in _bossMarkers.Values)
             {
                 if (markerInfo.MarkerObject != null)
@@ -851,9 +1008,12 @@ namespace BossNotifier
             }
             _bossMarkers.Clear();
 
-            // Clear boss data
             BossLocationSpawnPatch.bossesInRaid.Clear();
             BotBossPatch.spawnedBosses.Clear();
+            BotBossPatch.deadBosses.Clear();
+            BotBossPatch.vicinityNotificationsSent.Clear(); // FIX: Clear this too
+
+            FikaIntegration.Reset();
         }
         #endregion
 
