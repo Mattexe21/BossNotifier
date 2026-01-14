@@ -13,14 +13,13 @@ using System.Text;
 using System;
 using HarmonyLib;
 using System.Linq;
-using BossNotifier.Fika;
 
 
 #pragma warning disable IDE0051 // Remove unused private members
 
 namespace BossNotifier
 {
-    [BepInPlugin("Mattexe.BossNotifier", "BossNotifier", "1.2.0")]
+    [BepInPlugin("Mattexe.BossNotifier", "BossNotifier", "1.2.1")]
     [BepInDependency("com.fika.core", BepInDependency.DependencyFlags.SoftDependency)]
     public class BossNotifierPlugin : BaseUnityPlugin
     {
@@ -49,6 +48,16 @@ namespace BossNotifier
         public static ConfigEntry<Color> markerColor;
 
         private static ManualLogSource logger;
+
+        public static event Action OnPluginAwake;
+        public static event Action OnRaidStarted;
+        public static event Action<string> OnBossDied;
+        public static event Action OnRaidEnded;
+
+        // Methods to invoke events (called from BossNotifierMono)
+        public static void InvokeOnRaidStarted() => OnRaidStarted?.Invoke();
+        public static void InvokeOnBossDied(string bossName) => OnBossDied?.Invoke(bossName);
+        public static void InvokeOnRaidEnded() => OnRaidEnded?.Invoke();
 
         // Logging methods
         public static void Log(LogLevel level, string msg)
@@ -284,9 +293,10 @@ namespace BossNotifier
             // Subscribe to config changes
             Config.SettingChanged += Config_SettingChanged;
 
-            Logger.LogInfo($"Plugin BossNotifier v1.2.0 is loaded!");
-            // Initialize Fika integration (safe even if Fika not installed)
-            FikaIntegration.Initialize();
+            Logger.LogInfo($"Plugin BossNotifier v1.2.1 is loaded!");
+
+            // Invoke event for addon to hook into
+            OnPluginAwake?.Invoke();
         }
 
         // Event handler for configuration changes
@@ -550,8 +560,8 @@ namespace BossNotifier
 
             GenerateBossNotifications();
 
-            // Notify Fika integration that raid has started (host will send boss data)
-            FikaIntegration.OnRaidStarted();
+            // Notify addon that raid has started
+            BossNotifierPlugin.InvokeOnRaidStarted();
 
             if (!BossNotifierPlugin.showNotificationsOnRaidStart.Value) return;
             Invoke("SendBossNotifications", 2f);
@@ -677,8 +687,8 @@ namespace BossNotifier
                 // Track dead boss
                 BotBossPatch.deadBosses.Add(markerInfo.BossName);
 
-                // Notify Fika clients of boss death
-                FikaIntegration.OnBossDeath(markerInfo.BossName);
+                // Notify addon of boss death
+                BossNotifierPlugin.InvokeOnBossDied(markerInfo.BossName);
 
                 if (markerInfo.MarkerObject != null)
                 {
@@ -1013,7 +1023,8 @@ namespace BossNotifier
             BotBossPatch.deadBosses.Clear();
             BotBossPatch.vicinityNotificationsSent.Clear(); // FIX: Clear this too
 
-            FikaIntegration.Reset();
+            // Notify addon that raid ended
+            BossNotifierPlugin.InvokeOnRaidEnded();
         }
         #endregion
 

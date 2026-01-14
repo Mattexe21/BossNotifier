@@ -8,6 +8,12 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <Compile Remove="Fika\**" />
+	  <EmbeddedResource Remove="Fika\**" />
+	  <None Remove="Fika\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<Reference Include="Assembly-CSharp">
 			<HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll</HintPath>
 			<Private>false</Private>
@@ -42,10 +48,6 @@
 		</Reference>
 		<Reference Include="spt-reflection">
 			<HintPath>E:\Spt\BepInEx\plugins\spt\spt-reflection.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
-		<Reference Include="Fika.Core">
-			<HintPath>E:\Spt\BepInEx\plugins\Fika\Fika.Core.dll</HintPath>
 			<Private>false</Private>
 		</Reference>
 	</ItemGroup>
