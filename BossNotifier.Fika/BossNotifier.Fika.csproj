@@ -1,0 +1,60 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>BossNotifier.Fika</AssemblyName>
+    <RootNamespace>BossNotifier.Fika</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <!-- Riferimento al progetto principale -->
+  <ItemGroup>
+    <ProjectReference Include="..\BossNotifier.csproj" />
+  </ItemGroup>
+
+  <!-- Riferimenti -->
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Comfort">
+      <HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\Comfort.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx">
+      <HintPath>E:\Spt\BepInEx\core\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>E:\Spt\BepInEx\core\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Fika.Core">
+      <HintPath>E:\Spt\BepInEx\plugins\Fika\Fika.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="spt-reflection">
+      <HintPath>E:\Spt\BepInEx\plugins\spt\spt-reflection.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- PostBuild: Crea ZIP -->
+  <Target Name="PostBuild" AfterTargets="Build">
+    <MakeDir Directories="$(ProjectDir)release\BepInEx\plugins" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ProjectDir)release\BepInEx\plugins" />
+    <ZipDirectory SourceDirectory="$(ProjectDir)release" DestinationFile="$(ProjectDir)BossNotifier.Fika-$(Version).zip" Overwrite="true" />
+    <RemoveDir Directories="$(ProjectDir)release" />
+  </Target>
+
+</Project>

@@ -19,7 +19,7 @@ using System.Linq;
 
 namespace BossNotifier
 {
-    [BepInPlugin("Mattexe.BossNotifier", "BossNotifier", "1.2.1")]
+    [BepInPlugin("Mattexe.BossNotifier", "BossNotifier", "1.1.1")]
     [BepInDependency("com.fika.core", BepInDependency.DependencyFlags.SoftDependency)]
     public class BossNotifierPlugin : BaseUnityPlugin
     {
@@ -293,7 +293,7 @@ namespace BossNotifier
             // Subscribe to config changes
             Config.SettingChanged += Config_SettingChanged;
 
-            Logger.LogInfo($"Plugin BossNotifier v1.2.1 is loaded!");
+            Logger.LogInfo($"Plugin BossNotifier v1.1.1 is loaded!");
 
             // Invoke event for addon to hook into
             OnPluginAwake?.Invoke();
@@ -343,7 +343,7 @@ namespace BossNotifier
 
     #region Patches
     // Patch for tracking boss location spawns
-    internal class BossLocationSpawnPatch : ModulePatch
+    public class BossLocationSpawnPatch : ModulePatch
     {
         protected override MethodBase GetTargetMethod() => typeof(BossLocationSpawn).GetMethod("Init");
 
@@ -405,7 +405,7 @@ namespace BossNotifier
     }
 
     // Patch for tracking live boss spawns
-    internal class BotBossPatch : ModulePatch
+    public class BotBossPatch : ModulePatch
     {
         protected override MethodBase GetTargetMethod() => typeof(BotBoss).GetConstructors()[0];
 
@@ -496,7 +496,7 @@ namespace BossNotifier
     #endregion
 
     #region BossNotifierMono
-    class BossNotifierMono : MonoBehaviour
+    public class BossNotifierMono : MonoBehaviour
     {
         public static BossNotifierMono Instance;
         private List<string> bossNotificationMessages;
