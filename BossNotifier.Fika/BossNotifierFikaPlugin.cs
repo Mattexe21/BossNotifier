@@ -1,21 +1,28 @@
-﻿using BepInEx;
+﻿// BossNotifierFikaPlugin.cs
+
+using BepInEx;
 using BepInEx.Logging;
+using BossNotifier.Fika.Packets;
+using Comfort.Common;
+using Fika.Core.Main.Utils;
 using Fika.Core.Modding;
 using Fika.Core.Modding.Events;
 using Fika.Core.Networking;
-using BossNotifier.Fika.Packets;
-using Comfort.Common;
 using Fika.Core.Networking.LiteNetLib;
-using Fika.Core.Main.Utils;
+using Fika.Core.Networking.LiteNetLib.Utils;
+using System.Collections;
+using UnityEngine;
 
 namespace BossNotifier.Fika
 {
-    [BepInPlugin("Mattexe.BossNotifier.Fika", "BossNotifier - Fika Sync", "1.0.0")]
+    [BepInPlugin("Mattexe.BossNotifier.Fika", "BossNotifier - Fika Sync", "1.0.1")]
     [BepInDependency("Mattexe.BossNotifier")]
     [BepInDependency("com.fika.core")]
     public class BossNotifierFikaPlugin : BaseUnityPlugin
     {
         public static ManualLogSource LogSource;
+
+        private IFikaNetworkManager networkManager;
 
         private void Awake()
         {
@@ -34,28 +41,60 @@ namespace BossNotifier.Fika
 
         private void OnNetworkManagerCreated(FikaNetworkManagerCreatedEvent args)
         {
-            var networkManager = args.Manager;
+            networkManager = args.Manager;
+
             networkManager.RegisterPacket<AllBossesPacket>(OnAllBossesReceived);
             networkManager.RegisterPacket<BossDeathPacket>(OnBossDeathReceived);
+            networkManager.RegisterPacket<RequestBossesPacket>(OnRequestBossesReceived);
 
             LogSource.LogInfo("Fika packets registered!");
         }
 
         private void OnRaidStarted()
         {
-            // Only host sends boss data
-            if (!FikaBackendUtils.IsServer) return;
+            if (networkManager == null) return;
 
-            var bossesInRaid = BossLocationSpawnPatch.bossesInRaid;
-            if (bossesInRaid.Count == 0) return;
+            if (FikaBackendUtils.IsServer)
+            {
+                // Host waits until bosses are populated
+                StartCoroutine(SendBossesWhenReady());
+            }
+            else
+            {
+                // Client requests boss data
+                var requestPacket = new RequestBossesPacket();
+                networkManager.SendData(ref requestPacket, DeliveryMethod.ReliableOrdered, true);
 
-            var packet = new AllBossesPacket(bossesInRaid);
-            var networkManager = Singleton<IFikaNetworkManager>.Instance;
+                LogSource.LogInfo("Requested boss data from host");
+            }
+        }
+
+        private IEnumerator SendBossesWhenReady()
+        {
+            yield return new WaitUntil(() => BossLocationSpawnPatch.bossesInRaid.Count > 0);
+
+            var packet = new AllBossesPacket(BossLocationSpawnPatch.bossesInRaid);
 
             if (networkManager != null)
             {
                 networkManager.SendData(ref packet, DeliveryMethod.ReliableOrdered, true);
-                LogSource.LogInfo($"Sent AllBossesPacket with {bossesInRaid.Count} bosses");
+                LogSource.LogInfo($"Sent AllBossesPacket with {BossLocationSpawnPatch.bossesInRaid.Count} bosses (delayed)");
+            }
+        }
+
+        private void OnRequestBossesReceived(RequestBossesPacket packet)
+        {
+            // Only host responds
+            if (!FikaBackendUtils.IsServer) return;
+
+            if (BossLocationSpawnPatch.bossesInRaid.Count == 0) return;
+
+            var responsePacket = new AllBossesPacket(BossLocationSpawnPatch.bossesInRaid);
+
+            if (networkManager != null)
+            {
+                networkManager.SendData(ref responsePacket, DeliveryMethod.ReliableOrdered, true);
+                LogSource.LogInfo("Responded to boss data request");
             }
         }
 
@@ -65,7 +104,6 @@ namespace BossNotifier.Fika
             if (!FikaBackendUtils.IsServer) return;
 
             var packet = new BossDeathPacket(bossName);
-            var networkManager = Singleton<IFikaNetworkManager>.Instance;
 
             if (networkManager != null)
             {
@@ -81,14 +119,12 @@ namespace BossNotifier.Fika
 
             LogSource.LogInfo($"Received AllBossesPacket with {packet.BossesInRaid.Count} bosses");
 
-            // Update local boss data
             BossLocationSpawnPatch.bossesInRaid.Clear();
             foreach (var kvp in packet.BossesInRaid)
             {
                 BossLocationSpawnPatch.bossesInRaid[kvp.Key] = kvp.Value;
             }
 
-            // Regenerate notifications
             if (BossNotifierMono.Instance != null)
             {
                 BossNotifierMono.Instance.GenerateBossNotifications();
@@ -102,10 +138,8 @@ namespace BossNotifier.Fika
 
             LogSource.LogInfo($"Received BossDeathPacket for {packet.BossName}");
 
-            // Mark boss as dead
             BotBossPatch.deadBosses.Add(packet.BossName);
 
-            // Regenerate notifications
             if (BossNotifierMono.Instance != null)
             {
                 BossNotifierMono.Instance.GenerateBossNotifications();
@@ -116,5 +150,17 @@ namespace BossNotifier.Fika
         {
             // Cleanup if needed
         }
+    }
+
+
+    // --------------------
+    // Request Packet
+    // --------------------
+
+    public class RequestBossesPacket : INetSerializable
+    {
+        public void Serialize(NetDataWriter writer) { }
+
+        public void Deserialize(NetDataReader reader) { }
     }
 }
