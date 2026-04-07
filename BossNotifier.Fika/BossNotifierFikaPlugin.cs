@@ -1,6 +1,4 @@
-﻿// BossNotifierFikaPlugin.cs
-
-using BepInEx;
+﻿using BepInEx;
 using BepInEx.Logging;
 using BossNotifier.Fika.Packets;
 using Comfort.Common;
