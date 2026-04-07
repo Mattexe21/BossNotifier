@@ -103,6 +103,7 @@ namespace BossNotifier.Fika
 
             var packet = new BossDeathPacket(bossName);
 
+            // Regenerate notifications
             if (networkManager != null)
             {
                 networkManager.SendData(ref packet, DeliveryMethod.ReliableOrdered, true);
@@ -117,12 +118,14 @@ namespace BossNotifier.Fika
 
             LogSource.LogInfo($"Received AllBossesPacket with {packet.BossesInRaid.Count} bosses");
 
+            // Update local boss data
             BossLocationSpawnPatch.bossesInRaid.Clear();
             foreach (var kvp in packet.BossesInRaid)
             {
                 BossLocationSpawnPatch.bossesInRaid[kvp.Key] = kvp.Value;
             }
 
+            // Regenerate notifications
             if (BossNotifierMono.Instance != null)
             {
                 BossNotifierMono.Instance.GenerateBossNotifications();
@@ -136,8 +139,10 @@ namespace BossNotifier.Fika
 
             LogSource.LogInfo($"Received BossDeathPacket for {packet.BossName}");
 
+            // Mark boss as dead
             BotBossPatch.deadBosses.Add(packet.BossName);
 
+            // Regenerate notifications
             if (BossNotifierMono.Instance != null)
             {
                 BossNotifierMono.Instance.GenerateBossNotifications();
@@ -151,9 +156,7 @@ namespace BossNotifier.Fika
     }
 
 
-    // --------------------
     // Request Packet
-    // --------------------
 
     public class RequestBossesPacket : INetSerializable
     {
