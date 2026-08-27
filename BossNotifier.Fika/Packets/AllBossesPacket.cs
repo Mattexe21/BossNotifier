@@ -1,37 +1,35 @@
 ﻿using Fika.Core.Networking.LiteNetLib.Utils;
 using System.Collections.Generic;
 
-namespace BossNotifier.Fika.Packets
+public struct AllBossesPacket : INetSerializable
 {
-    public struct AllBossesPacket : INetSerializable
+    public Dictionary<string, string> BossesInRaid;
+
+    public AllBossesPacket(Dictionary<string, string> bosses)
     {
-        public Dictionary<string, string> BossesInRaid;
+        BossesInRaid = bosses;
+    }
 
-        public AllBossesPacket(Dictionary<string, string> bossesInRaid)
+    public void Serialize(NetDataWriter writer)
+    {
+        writer.Put(BossesInRaid.Count);
+        foreach (var kvp in BossesInRaid)
         {
-            BossesInRaid = bossesInRaid ?? new Dictionary<string, string>();
+            writer.Put(kvp.Key);
+            writer.Put(kvp.Value);
         }
+    }
 
-        public void Serialize(NetDataWriter writer)
-        {
-            writer.Put(BossesInRaid.Count);
-            foreach (var kvp in BossesInRaid)
-            {
-                writer.Put(kvp.Key);
-                writer.Put(kvp.Value);
-            }
-        }
+    public void Deserialize(NetDataReader reader)
+    {
+        int count = reader.GetInt();
+        BossesInRaid = new Dictionary<string, string>(count);
 
-        public void Deserialize(NetDataReader reader)
+        for (int i = 0; i < count; i++)
         {
-            int count = reader.GetInt();
-            BossesInRaid = new Dictionary<string, string>(count);
-            for (int i = 0; i < count; i++)
-            {
-                string key = reader.GetString();
-                string value = reader.GetString();
-                BossesInRaid[key] = value;
-            }
+            string key = reader.GetString();
+            string value = reader.GetString();
+            BossesInRaid[key] = value;
         }
     }
 }

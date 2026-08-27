@@ -14,12 +14,11 @@ using System;
 using HarmonyLib;
 using System.Linq;
 
-
 #pragma warning disable IDE0051 // Remove unused private members
 
 namespace BossNotifier
 {
-    [BepInPlugin("Mattexe.BossNotifier", "BossNotifier", "1.1.1")]
+    [BepInPlugin("Mattexe.BossNotifier", "BossNotifier", "1.3.0")]
     [BepInDependency("com.fika.core", BepInDependency.DependencyFlags.SoftDependency)]
     public class BossNotifierPlugin : BaseUnityPlugin
     {
@@ -87,6 +86,13 @@ namespace BossNotifier
             { WildSpawnType.bossPartisan, "Partisan" },
             { (WildSpawnType)4206927, "Punisher" },
             { (WildSpawnType)199, "Legion" },
+            // === Black Division (BlackDiv mod, requires MoreBotsAPI) ===
+            { (WildSpawnType)848424, "Wedge" },                    // bossWedge - the Black Division boss
+            { (WildSpawnType)848420, "Black Division Lead" },      // blackDivLead
+            { (WildSpawnType)848421, "Black Division Assault" },   // blackDivAssault
+            { (WildSpawnType)848422, "Black Division Breacher" },  // blackDivBreacher
+            { (WildSpawnType)848423, "Black Division Support" },   // blackDivSupport
+            { (WildSpawnType)848426, "Black Division Raider" },    // blackDivIb (Wedge's escort)
         };
 
         // Set of plural boss names
@@ -103,6 +109,15 @@ namespace BossNotifier
             "Knight",
             "Big Pipe",
             "Birdeye",
+        };
+
+        // Black Division members (for grouping) - excludes Wedge, who is notified individually
+        public static readonly HashSet<string> blackDivisionMembers = new HashSet<string>() {
+            "Black Division Lead",
+            "Black Division Assault",
+            "Black Division Breacher",
+            "Black Division Support",
+            "Black Division Raider",
         };
 
         // Dictionary mapping zone IDs to names
@@ -293,7 +308,7 @@ namespace BossNotifier
             // Subscribe to config changes
             Config.SettingChanged += Config_SettingChanged;
 
-            Logger.LogInfo($"Plugin BossNotifier v1.1.1 is loaded!");
+            Logger.LogInfo($"Plugin BossNotifier v1.3.0 is loaded!");
 
             // Invoke event for addon to hook into
             OnPluginAwake?.Invoke();
@@ -427,8 +442,10 @@ namespace BossNotifier
 
             spawnedBosses.Add(name);
 
-            // Use "Goons" for vicinity notification if it's a goon member
-            string notifName = BossNotifierPlugin.goonMembers.Contains(name) ? "Goons" : name;
+            // Use "Goons" / "Black Division" for vicinity notification if it's a grouped member
+            string notifName = BossNotifierPlugin.goonMembers.Contains(name) ? "Goons"
+                : BossNotifierPlugin.blackDivisionMembers.Contains(name) ? "Black Division"
+                : name;
 
             // FIX: Only send one vicinity notification per boss/group
             if (!vicinityNotificationsSent.Contains(notifName))
@@ -926,6 +943,10 @@ namespace BossNotifier
             string goonsLocation = "";
             bool goonsDetected = false;
 
+            // Track if we already added Black Division notification
+            bool blackDivNotificationAdded = false;
+            string blackDivLocation = "";
+
             foreach (var bossSpawn in BossLocationSpawnPatch.bossesInRaid)
             {
                 if (isDayTime && bossSpawn.Key.Equals("Cultists")) continue;
@@ -960,6 +981,42 @@ namespace BossNotifier
                         }
                         bossNotificationMessages.Add(goonsMessage);
                         goonsNotificationAdded = true;
+                    }
+                    continue;
+                }
+
+                // Handle Black Division members (excluding Wedge, who is notified individually below) as a group
+                if (BossNotifierPlugin.blackDivisionMembers.Contains(bossSpawn.Key))
+                {
+                    if (!blackDivNotificationAdded)
+                    {
+                        blackDivLocation = bossSpawn.Value;
+
+                        // Composition varies by spawn (hunt squad vs. Labs escort), so track membership
+                        // dynamically off whichever Black Division roles have actually spawned this raid.
+                        List<string> spawnedBlackDivMembers = BotBossPatch.spawnedBosses
+                            .Where(n => BossNotifierPlugin.blackDivisionMembers.Contains(n)).ToList();
+                        bool blackDivDetected = spawnedBlackDivMembers.Count > 0;
+
+                        // Check if ALL spawned Black Division members are dead
+                        bool allBlackDivDead = spawnedBlackDivMembers.Count > 0 &&
+                                               spawnedBlackDivMembers.All(n => BotBossPatch.deadBosses.Contains(n));
+
+                        string blackDivMessage;
+                        if (allBlackDivDead)
+                        {
+                            blackDivMessage = "Black Division has been eliminated. ☠";
+                        }
+                        else if (!isLocationUnlocked || blackDivLocation == null || blackDivLocation.Equals(""))
+                        {
+                            blackDivMessage = $"Black Division has been located.{(isDetectionUnlocked && blackDivDetected ? " ✓" : "")}";
+                        }
+                        else
+                        {
+                            blackDivMessage = $"Black Division has been located near {blackDivLocation}.{(isDetectionUnlocked && blackDivDetected ? " ✓" : "")}";
+                        }
+                        bossNotificationMessages.Add(blackDivMessage);
+                        blackDivNotificationAdded = true;
                     }
                     continue;
                 }
