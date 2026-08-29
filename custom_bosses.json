@@ -1,0 +1,81 @@
+{
+  "customBossGroups": [
+    {
+      "groupName": "Black Division",
+      "pluginGUID": "com.blackdiv.tacticaltoaster",
+      "isPlural": true,
+      "members": [
+        {
+          "id": 848420,
+          "displayName": "Leader"
+        },
+        {
+          "id": 848421,
+          "displayName": "Assault"
+        },
+        {
+          "id": 848422,
+          "displayName": "Breacher"
+        },
+        {
+          "id": 848423,
+          "displayName": "Support"
+        }
+      ]
+    },
+    {
+      "groupName": "UNTAR",
+      "pluginGUID": "com.untargh.tacticaltoaster",
+      "isPlural": true,
+      "members": [
+        {
+          "id": 1170,
+          "displayName": "Follower"
+        },
+        {
+          "id": 1171,
+          "displayName": "Leader"
+        },
+        {
+          "id": 1172,
+          "displayName": "Marksman"
+        },
+        {
+          "id": 1173,
+          "displayName": "Officer"
+        }
+      ]
+    },
+    {
+      "groupName": "RUAF",
+      "pluginGUID": "com.ruafcomehome.tacticaltoaster",
+      "isPlural": true,
+      "members": [
+        {
+          "id": 848400,
+          "displayName": "Rifleman"
+        },
+        {
+          "id": 848401,
+          "displayName": "Senior Rifleman"
+        },
+        {
+          "id": 848402,
+          "displayName": "Autorifleman"
+        },
+        {
+          "id": 848403,
+          "displayName": "Grenadier"
+        },
+        {
+          "id": 848404,
+          "displayName": "Marksman"
+        },
+        {
+          "id": 848405,
+          "displayName": "Machinegunner"
+        }
+      ]
+    }
+  ]
+}

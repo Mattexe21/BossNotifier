@@ -11,19 +11,21 @@ using Comfort.Common;
 using BepInEx.Logging;
 using System.Text;
 using System;
+using System.IO;
 using HarmonyLib;
 using System.Linq;
+
 
 
 #pragma warning disable IDE0051 // Remove unused private members
 
 namespace BossNotifier
 {
-    [BepInPlugin("Mattexe.BossNotifier", "BossNotifier", "1.1.1")]
+    [BepInPlugin("Mattexe.BossNotifier", "BossNotifier", "1.2.1")]
     [BepInDependency("com.fika.core", BepInDependency.DependencyFlags.SoftDependency)]
     public class BossNotifierPlugin : BaseUnityPlugin
     {
-        public static FieldInfo FikaIsPlayerHost;
+        public static PropertyInfo FikaClientTypeProperty;
 
         // Configuration entries - General
         public static ConfigEntry<KeyboardShortcut> showBossesKeyCode;
@@ -89,8 +91,35 @@ namespace BossNotifier
             { (WildSpawnType)199, "Legion" },
         };
 
+        // Custom boss configuration
+        public static CustomBossConfig customBossConfig;
+        public static Dictionary<int, string> customBossLookup = new Dictionary<int, string>(); // ID -> groupName (for notifications)
+        public static Dictionary<int, string> customBossDisplayNames = new Dictionary<int, string>(); // ID -> displayName (for markers)
+        public static HashSet<string> customBossGroups = new HashSet<string>(); // All custom group names
+
+        // Custom group marker settings (created dynamically based on installed mods)
+        public static Dictionary<string, ConfigEntry<string>> customGroupMarkerCharacters = new Dictionary<string, ConfigEntry<string>>();
+        public static Dictionary<string, ConfigEntry<Color>> customGroupMarkerColors = new Dictionary<string, ConfigEntry<Color>>();
+        public static HashSet<string> loadedCustomMods = new HashSet<string>(); // Track which mods are installed
+
+        // Per-group counters for "all members eliminated" check on plural vanilla bosses (Cultists,
+        // Blood Hounds, Crazy Scavs, Rogues) and custom groups. Reset between raids.
+        public static Dictionary<string, int> groupSeenCount = new Dictionary<string, int>();
+        public static Dictionary<string, int> groupDeadCount = new Dictionary<string, int>();
+
+        // A plural/custom group is "eliminated" only when at least one member was seen and all seen members died.
+        // Avoids false-positive "X eliminated" when no members spawned yet (group could spawn later).
+        public static bool IsGroupFullyEliminated(string groupName)
+        {
+            int seen;
+            if (!groupSeenCount.TryGetValue(groupName, out seen) || seen == 0) return false;
+            int dead;
+            groupDeadCount.TryGetValue(groupName, out dead);
+            return dead >= seen;
+        }
+
         // Set of plural boss names
-        public static readonly HashSet<string> pluralBosses = new HashSet<string>() {
+        public static HashSet<string> pluralBosses = new HashSet<string>() {
             "Goons",
             "Cultists",
             "Blood Hounds",
@@ -229,10 +258,13 @@ namespace BossNotifier
         {
             logger = Logger;
 
-            Type FikaUtilExternalType = Type.GetType("Fika.Core.Coop.Utils.FikaBackendUtils, Fika.Core", false);
+            // Namespace moved from Fika.Core.Coop.Utils -> Fika.Core.Main.Utils, and the host/client
+            // indicator became the "ClientType" property (EClientType.Host == 2) instead of a
+            // "MatchingType" field.
+            Type FikaUtilExternalType = Type.GetType("Fika.Core.Main.Utils.FikaBackendUtils, Fika.Core", false);
             if (FikaUtilExternalType != null)
             {
-                FikaIsPlayerHost = AccessTools.Field(FikaUtilExternalType, "MatchingType");
+                FikaClientTypeProperty = AccessTools.Property(FikaUtilExternalType, "ClientType");
             }
 
             // Initialize configuration entries - General
@@ -285,6 +317,8 @@ namespace BossNotifier
 
             markerColor = Config.Bind("3. Boss Markers", "11. Marker Color", new Color(1f, 0f, 0f, 1f), "Color of boss markers (red by default).");
 
+
+            LoadCustomBossConfig();
             // Enable patches
             new BossLocationSpawnPatch().Enable();
             new NewGamePatch().Enable();
@@ -293,7 +327,7 @@ namespace BossNotifier
             // Subscribe to config changes
             Config.SettingChanged += Config_SettingChanged;
 
-            Logger.LogInfo($"Plugin BossNotifier v1.1.1 is loaded!");
+            Logger.LogInfo($"Plugin BossNotifier v1.2.1 is loaded!");
 
             // Invoke event for addon to hook into
             OnPluginAwake?.Invoke();
@@ -308,16 +342,59 @@ namespace BossNotifier
             if (BossNotifierMono.Instance) BossNotifierMono.Instance.GenerateBossNotifications();
         }
 
-        // Get boss name by type
+        // Get boss name by type (for notifications - returns group name for custom bosses)
         public static string GetBossName(WildSpawnType type)
         {
-            return bossNames.ContainsKey(type) ? bossNames[type] : null;
+            // Check vanilla bosses first
+            if (bossNames.ContainsKey(type)) return bossNames[type];
+
+            // Check custom bosses - return group name
+            int typeId = (int)type;
+            if (customBossLookup.ContainsKey(typeId)) return customBossLookup[typeId];
+
+            return null;
+        }
+
+        // Get boss display name for markers (individual role name)
+        public static string GetBossDisplayName(WildSpawnType type)
+        {
+            // Check vanilla bosses first - they use their normal name
+            if (bossNames.ContainsKey(type)) return bossNames[type];
+
+            // Check custom bosses - use individual display name
+            int typeId = (int)type;
+            if (customBossDisplayNames.ContainsKey(typeId)) return customBossDisplayNames[typeId];
+
+            return null;
+        }
+
+        // Get marker character for a specific group (custom groups have their own settings)
+        public static string GetMarkerCharacter(string groupName)
+        {
+            if (customGroupMarkerCharacters.ContainsKey(groupName))
+                return customGroupMarkerCharacters[groupName].Value;
+
+            return markerCharacter.Value; // Default to vanilla setting
+        }
+
+        // Get marker color for a specific group (custom groups have their own settings)
+        public static Color GetMarkerColor(string groupName)
+        {
+            if (customGroupMarkerColors.ContainsKey(groupName))
+                return customGroupMarkerColors[groupName].Value;
+
+            return markerColor.Value; // Default to vanilla setting
         }
 
         // Check if a WildSpawnType is a boss
         public static bool IsBoss(WildSpawnType type)
         {
-            return bossNames.ContainsKey(type);
+            // Check vanilla bosses
+            if (bossNames.ContainsKey(type)) return true;
+
+            // Check custom bosses
+            int typeId = (int)type;
+            return customBossLookup.ContainsKey(typeId);
         }
 
         // Get zone name by ID
@@ -338,6 +415,105 @@ namespace BossNotifier
                 sb.Append(c);
             }
             return sb.ToString().Replace("_", " ").Trim();
+        }
+
+        // Check if a BepInEx plugin is loaded
+        private bool IsPluginLoaded(string pluginGUID)
+        {
+            if (string.IsNullOrEmpty(pluginGUID)) return true; // No GUID = always load
+            return BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(pluginGUID);
+        }
+
+        // Default colors for custom groups
+        private static readonly Dictionary<string, Color> defaultGroupColors = new Dictionary<string, Color>()
+        {
+            { "RUAF", new Color(0.2f, 0.6f, 0.2f, 1f) },           // Green
+            { "UNTAR", new Color(0.3f, 0.5f, 1f, 1f) },            // Blue
+            { "Black Division", new Color(0.1f, 0.1f, 0.1f, 1f) }  // Dark gray/black
+        };
+
+        private void LoadCustomBossConfig()
+        {
+            string pluginFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string configPath = Path.Combine(pluginFolder, "custom_bosses.json");
+
+            try
+            {
+                if (File.Exists(configPath))
+                {
+                    string json = File.ReadAllText(configPath);
+                    customBossConfig = Newtonsoft.Json.JsonConvert.DeserializeObject<CustomBossConfig>(json);
+
+                    if (customBossConfig?.customBossGroups != null)
+                    {
+                        int loadedGroups = 0;
+                        int sectionIndex = 4; // Start at 4 (after "3. Boss Markers")
+
+                        foreach (var group in customBossConfig.customBossGroups)
+                        {
+                            // Check if the mod is installed
+                            if (!IsPluginLoaded(group.pluginGUID))
+                            {
+                                Logger.LogInfo($"Skipping {group.groupName} - mod not installed (GUID: {group.pluginGUID})");
+                                continue;
+                            }
+
+                            Logger.LogInfo($"Mod detected: {group.groupName} (GUID: {group.pluginGUID})");
+                            loadedCustomMods.Add(group.groupName);
+
+                            // Add to lookup dictionaries
+                            foreach (var member in group.members)
+                            {
+                                customBossLookup[member.id] = group.groupName;
+                                customBossDisplayNames[member.id] = member.displayName;
+                            }
+
+                            // Track group names
+                            customBossGroups.Add(group.groupName);
+
+                            // Add to pluralBosses if needed
+                            if (group.isPlural)
+                            {
+                                pluralBosses.Add(group.groupName);
+                            }
+
+                            // Create config entries for this group
+                            string sectionName = $"{sectionIndex}. {group.groupName} Markers";
+
+                            // Get default color for this group
+                            Color defaultColor = defaultGroupColors.ContainsKey(group.groupName)
+                                ? defaultGroupColors[group.groupName]
+                                : new Color(1f, 0.5f, 0f, 1f); // Orange fallback
+
+                            customGroupMarkerCharacters[group.groupName] = Config.Bind(
+                                sectionName,
+                                "Marker Character",
+                                "▼",
+                                new ConfigDescription($"Character to display as marker for {group.groupName}.",
+                                new AcceptableValueList<string>("▼", "▽", "↓", "●", "◆", "★", "☠", "◉", "▲")));
+
+                            customGroupMarkerColors[group.groupName] = Config.Bind(
+                                sectionName,
+                                "Marker Color",
+                                defaultColor,
+                                $"Color of {group.groupName} markers.");
+
+                            loadedGroups++;
+                            sectionIndex++;
+                        }
+
+                        Logger.LogInfo($"Loaded {loadedGroups} custom boss groups with {customBossLookup.Count} total IDs");
+                    }
+                }
+                else
+                {
+                    Logger.LogWarning($"Custom boss config not found at: {configPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Failed to load custom boss config: {ex.Message}");
+            }
         }
     }
 
@@ -381,6 +557,13 @@ namespace BossNotifier
         {
             if (__instance.ShallSpawn)
             {
+                // Custom mods (RUAF / UNTAR / Black Division) inject BossLocationSpawn entries
+                // with delays, random timing, BossChance < 100, or trigger conditions. ShallSpawn
+                // is true at raid start but the bots may spawn minutes later, only on a trigger,
+                // or never. Skip them here and let OnPersonAdd / BotBossPatch register them once
+                // they actually spawn into the world.
+                if (BossNotifierPlugin.customBossLookup.ContainsKey((int)__instance.BossType)) return;
+
                 string name = BossNotifierPlugin.GetBossName(__instance.BossType);
                 if (name == null) return;
 
@@ -426,6 +609,16 @@ namespace BossNotifier
             BossNotifierPlugin.Log(LogLevel.Info, $"{name} has spawned at {position} on {Singleton<GameWorld>.Instance.LocationId}");
 
             spawnedBosses.Add(name);
+
+            // Fallback: register the boss in bossesInRaid if BossLocationSpawn.Init didn't.
+            // Hits two cases: custom mod bosses spawned dynamically (RUAF/UNTAR/Black Division),
+            // and Fika clients that haven't received the sync packet yet.
+            if (!BossLocationSpawnPatch.bossesInRaid.ContainsKey(name))
+            {
+                BossLocationSpawnPatch.bossesInRaid[name] = "";
+                BossNotifierPlugin.Log(LogLevel.Info, $"Registered {name} in bossesInRaid via spawn fallback");
+                if (BossNotifierMono.Instance != null) BossNotifierMono.Instance.GenerateBossNotifications();
+            }
 
             // Use "Goons" for vicinity notification if it's a goon member
             string notifName = BossNotifierPlugin.goonMembers.Contains(name) ? "Goons" : name;
@@ -479,15 +672,17 @@ namespace BossNotifier
     public class BossMarkerInfo
     {
         public Player Player { get; set; }
-        public string BossName { get; set; }
+        public string BossName { get; set; }      // Display name (shown on marker)
+        public string GroupName { get; set; }     // Group name (for death tracking/notifications)
         public GameObject MarkerObject { get; set; }
         public TextMesh SymbolTextMesh { get; set; }
         public TextMesh InfoTextMesh { get; set; }
 
-        public BossMarkerInfo(Player player, string bossName, GameObject markerObject, TextMesh symbolTextMesh, TextMesh infoTextMesh)
+        public BossMarkerInfo(Player player, string bossName, string groupName, GameObject markerObject, TextMesh symbolTextMesh, TextMesh infoTextMesh)
         {
             Player = player;
             BossName = bossName;
+            GroupName = groupName;
             MarkerObject = markerObject;
             SymbolTextMesh = symbolTextMesh;
             InfoTextMesh = infoTextMesh;
@@ -578,16 +773,32 @@ namespace BossNotifier
                 var role = player.Profile?.Info?.Settings?.Role;
                 if (role.HasValue && BossNotifierPlugin.IsBoss(role.Value))
                 {
-                    string bossName = BossNotifierPlugin.GetBossName(role.Value);
-                    if (bossName != null && !_bossMarkers.ContainsKey(player))
+                    string groupName = BossNotifierPlugin.GetBossName(role.Value);          // Group name for notifications
+                    string displayName = BossNotifierPlugin.GetBossDisplayName(role.Value); // Display name for markers
+                    if (groupName != null && !_bossMarkers.ContainsKey(player))
                     {
-                        CreateBossMarker(player, bossName);
+                        CreateBossMarker(player, displayName ?? groupName, groupName);
 
                         // FIX: Subscribe to death event for existing bosses
                         player.OnPlayerDeadOrUnspawn += OnBossDeadOrUnspawn;
+
+                        RegisterCustomBossInRaid(role.Value, groupName);
                     }
                 }
             }
+        }
+
+        // Custom bosses are intentionally skipped by BossLocationSpawnPatch (delayed/triggered/random
+        // spawns). Once the bot is actually in the world we add it to bossesInRaid so the player
+        // sees the "located" notification only when the boss is genuinely present.
+        private void RegisterCustomBossInRaid(WildSpawnType role, string groupName)
+        {
+            if (!BossNotifierPlugin.customBossLookup.ContainsKey((int)role)) return;
+            if (BossLocationSpawnPatch.bossesInRaid.ContainsKey(groupName)) return;
+
+            BossLocationSpawnPatch.bossesInRaid[groupName] = "";
+            BossNotifierPlugin.Log(LogLevel.Info, $"Registered custom boss {groupName} in bossesInRaid via OnPersonAdd");
+            GenerateBossNotifications();
         }
         #endregion
 
@@ -603,24 +814,31 @@ namespace BossNotifier
             // Check if this is a boss
             if (BossNotifierPlugin.IsBoss(role.Value))
             {
-                string bossName = BossNotifierPlugin.GetBossName(role.Value);
-                if (bossName != null)
+                string groupName = BossNotifierPlugin.GetBossName(role.Value);          // Group name for notifications
+                string displayName = BossNotifierPlugin.GetBossDisplayName(role.Value); // Display name for markers
+                if (groupName != null)
                 {
-                    BossNotifierPlugin.Log(LogLevel.Info, $"Boss detected via OnPersonAdd: {bossName}");
-                    CreateBossMarker(player, bossName);
+                    BossNotifierPlugin.Log(LogLevel.Info, $"Boss detected via OnPersonAdd: {displayName ?? groupName} ({groupName})");
+                    CreateBossMarker(player, displayName ?? groupName, groupName);
 
                     // Subscribe to death event
                     player.OnPlayerDeadOrUnspawn += OnBossDeadOrUnspawn;
+
+                    RegisterCustomBossInRaid(role.Value, groupName);
                 }
             }
         }
 
-        private void CreateBossMarker(Player player, string bossName)
+        private void CreateBossMarker(Player player, string bossName, string groupName)
         {
             if (_bossMarkers.ContainsKey(player)) return;
 
             try
             {
+                // Get group-specific marker settings
+                string markerChar = BossNotifierPlugin.GetMarkerCharacter(groupName);
+                Color markerCol = BossNotifierPlugin.GetMarkerColor(groupName);
+
                 // Create main marker GameObject
                 GameObject markerObj = new GameObject($"BossMarker_{bossName}");
 
@@ -630,24 +848,24 @@ namespace BossNotifier
                 symbolObj.transform.localPosition = Vector3.zero;
 
                 TextMesh symbolMesh = symbolObj.AddComponent<TextMesh>();
-                symbolMesh.text = BossNotifierPlugin.markerCharacter.Value;
+                symbolMesh.text = markerChar;
                 symbolMesh.fontSize = BossNotifierPlugin.fontSize.Value;
                 symbolMesh.anchor = TextAnchor.MiddleCenter;
                 symbolMesh.alignment = TextAlignment.Center;
-                symbolMesh.color = BossNotifierPlugin.markerColor.Value;
+                symbolMesh.color = markerCol;
                 symbolMesh.fontStyle = FontStyle.Bold;
 
-                // Create info object (name + distance) - child of marker
+                // Create info object (name + distance) - child of marker, placed above the symbol
                 GameObject infoObj = new GameObject("Info");
                 infoObj.transform.SetParent(markerObj.transform);
-                infoObj.transform.localPosition = new Vector3(0, -0.015f, 0);
+                infoObj.transform.localPosition = new Vector3(0, 0.05f, 0);
 
                 TextMesh infoMesh = infoObj.AddComponent<TextMesh>();
                 infoMesh.text = bossName;
                 infoMesh.fontSize = 48;
-                infoMesh.anchor = TextAnchor.UpperCenter;
+                infoMesh.anchor = TextAnchor.LowerCenter;
                 infoMesh.alignment = TextAlignment.Center;
-                infoMesh.color = BossNotifierPlugin.markerColor.Value;
+                infoMesh.color = markerCol;
                 infoMesh.fontStyle = FontStyle.Bold;
 
                 // Add Billboard component to main marker (children follow)
@@ -662,11 +880,19 @@ namespace BossNotifier
                 // Set active based on config
                 markerObj.SetActive(_markersVisible && BossNotifierPlugin.enableMarkers.Value);
 
-                // Store marker info
-                var markerInfo = new BossMarkerInfo(player, bossName, markerObj, symbolMesh, infoMesh);
+                // Store marker info (bossName = display name, groupName = for tracking)
+                var markerInfo = new BossMarkerInfo(player, bossName, groupName, markerObj, symbolMesh, infoMesh);
                 _bossMarkers[player] = markerInfo;
 
-                BossNotifierPlugin.Log(LogLevel.Info, $"Created marker for boss: {bossName}");
+                // Track seen count for plural / custom groups so "all eliminated" only fires once everyone is dead
+                if (BossNotifierPlugin.pluralBosses.Contains(groupName) || BossNotifierPlugin.customBossGroups.Contains(groupName))
+                {
+                    int seen;
+                    BossNotifierPlugin.groupSeenCount.TryGetValue(groupName, out seen);
+                    BossNotifierPlugin.groupSeenCount[groupName] = seen + 1;
+                }
+
+                BossNotifierPlugin.Log(LogLevel.Info, $"Created marker for boss: {bossName} (group: {groupName})");
             }
             catch (Exception ex)
             {
@@ -682,13 +908,27 @@ namespace BossNotifier
 
             if (_bossMarkers.TryGetValue(player, out var markerInfo))
             {
-                BossNotifierPlugin.Log(LogLevel.Info, $"Boss died/unspawned: {markerInfo.BossName}");
+                BossNotifierPlugin.Log(LogLevel.Info, $"Boss died/unspawned: {markerInfo.BossName} (group: {markerInfo.GroupName})");
 
-                // Track dead boss
-                BotBossPatch.deadBosses.Add(markerInfo.BossName);
+                // For plural and custom groups (Cultists, Blood Hounds, RUAF, ...) we count individual deaths
+                // and let IsGroupFullyEliminated decide. For single-instance bosses and Goons individuals
+                // (Knight/Big Pipe/Birdeye - the goons block in GenerateBossNotifications checks each by name)
+                // we mark the boss dead immediately.
+                bool isPluralOrCustom = BossNotifierPlugin.pluralBosses.Contains(markerInfo.GroupName)
+                                        || BossNotifierPlugin.customBossGroups.Contains(markerInfo.GroupName);
+                if (isPluralOrCustom)
+                {
+                    int dead;
+                    BossNotifierPlugin.groupDeadCount.TryGetValue(markerInfo.GroupName, out dead);
+                    BossNotifierPlugin.groupDeadCount[markerInfo.GroupName] = dead + 1;
+                }
+                else
+                {
+                    BotBossPatch.deadBosses.Add(markerInfo.GroupName);
+                }
 
-                // Notify addon of boss death
-                BossNotifierPlugin.InvokeOnBossDied(markerInfo.BossName);
+                // Notify addon of boss death (use GroupName for consistency)
+                BossNotifierPlugin.InvokeOnBossDied(markerInfo.GroupName);
 
                 if (markerInfo.MarkerObject != null)
                 {
@@ -711,7 +951,7 @@ namespace BossNotifier
                 string notif = BotBossPatch.vicinityNotifications.Dequeue();
                 if (Instance.intelCenterLevel >= BossNotifierPlugin.intelCenterDetectedUnlockLevel.Value)
                 {
-                    NotificationManagerClass.DisplayMessageNotification(notif, ENotificationDurationType.Long);
+                    NotificationManager.DisplayMessageNotification(notif, ENotificationDurationType.Long);
                     Instance.GenerateBossNotifications();
                 }
             }
@@ -728,7 +968,7 @@ namespace BossNotifier
                 _markersVisible = !_markersVisible;
                 ToggleAllMarkers(_markersVisible);
                 string status = _markersVisible ? "ON" : "OFF";
-                NotificationManagerClass.DisplayMessageNotification($"Boss Markers: {status}", ENotificationDurationType.Default);
+                NotificationManager.DisplayMessageNotification($"Boss Markers: {status}", ENotificationDurationType.Default);
             }
 
             // Update markers
@@ -844,12 +1084,16 @@ namespace BossNotifier
 
         private void UpdateMarkerText(BossMarkerInfo markerInfo, float distance)
         {
+            // Get group-specific settings
+            string markerChar = BossNotifierPlugin.GetMarkerCharacter(markerInfo.GroupName);
+            Color markerCol = BossNotifierPlugin.GetMarkerColor(markerInfo.GroupName);
+
             // Update symbol
             if (markerInfo.SymbolTextMesh != null)
             {
-                markerInfo.SymbolTextMesh.text = BossNotifierPlugin.markerCharacter.Value;
+                markerInfo.SymbolTextMesh.text = markerChar;
                 markerInfo.SymbolTextMesh.fontSize = BossNotifierPlugin.fontSize.Value;
-                markerInfo.SymbolTextMesh.color = BossNotifierPlugin.markerColor.Value;
+                markerInfo.SymbolTextMesh.color = markerCol;
             }
 
             // Update info (name + distance)
@@ -875,10 +1119,10 @@ namespace BossNotifier
                     markerInfo.InfoTextMesh.text = "";
                 }
 
-                markerInfo.InfoTextMesh.color = BossNotifierPlugin.markerColor.Value;
+                markerInfo.InfoTextMesh.color = markerCol;
 
                 float fontSizeRatio = BossNotifierPlugin.fontSize.Value / 64f;
-                float yOffset = -0.015f * fontSizeRatio;
+                float yOffset = 0.05f * fontSizeRatio;
                 markerInfo.InfoTextMesh.transform.localPosition = new Vector3(0, yOffset, 0);
             }
         }
@@ -903,13 +1147,13 @@ namespace BossNotifier
 
             if (bossNotificationMessages.Count == 0)
             {
-                NotificationManagerClass.DisplayMessageNotification("No Bosses Located", ENotificationDurationType.Long);
+                NotificationManager.DisplayMessageNotification("No Bosses Located", ENotificationDurationType.Long);
                 return;
             }
 
             foreach (var bossMessage in bossNotificationMessages)
             {
-                NotificationManagerClass.DisplayMessageNotification(bossMessage, ENotificationDurationType.Long);
+                NotificationManager.DisplayMessageNotification(bossMessage, ENotificationDurationType.Long);
             }
         }
 
@@ -965,7 +1209,18 @@ namespace BossNotifier
                 }
 
                 bool isDetected = BotBossPatch.spawnedBosses.Contains(bossSpawn.Key);
-                bool isDead = BotBossPatch.deadBosses.Contains(bossSpawn.Key);
+
+                // Plural and custom groups: "eliminated" only when every seen member is dead.
+                // Single-instance bosses: deadBosses set is authoritative.
+                bool isDead;
+                if (BossNotifierPlugin.pluralBosses.Contains(bossSpawn.Key) || BossNotifierPlugin.customBossGroups.Contains(bossSpawn.Key))
+                {
+                    isDead = BossNotifierPlugin.IsGroupFullyEliminated(bossSpawn.Key);
+                }
+                else
+                {
+                    isDead = BotBossPatch.deadBosses.Contains(bossSpawn.Key);
+                }
 
                 string notificationMessage;
 
@@ -1022,6 +1277,8 @@ namespace BossNotifier
             BotBossPatch.spawnedBosses.Clear();
             BotBossPatch.deadBosses.Clear();
             BotBossPatch.vicinityNotificationsSent.Clear(); // FIX: Clear this too
+            BossNotifierPlugin.groupSeenCount.Clear();
+            BossNotifierPlugin.groupDeadCount.Clear();
 
             // Notify addon that raid ended
             BossNotifierPlugin.InvokeOnRaidEnded();
@@ -1031,8 +1288,8 @@ namespace BossNotifier
         #region Utility
         public bool ShouldFunction()
         {
-            if (BossNotifierPlugin.FikaIsPlayerHost == null) return true;
-            return (int)BossNotifierPlugin.FikaIsPlayerHost.GetValue(null) == 2;
+            if (BossNotifierPlugin.FikaClientTypeProperty == null) return true;
+            return (int)BossNotifierPlugin.FikaClientTypeProperty.GetValue(null) == 2;
         }
 
         bool IsKeyPressed(KeyboardShortcut key)

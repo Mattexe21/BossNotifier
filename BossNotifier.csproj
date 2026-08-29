@@ -5,63 +5,70 @@
         <AssemblyName>BossNotifier</AssemblyName>
         <RootNamespace>BossNotifier</RootNamespace>
         <LangVersion>latest</LangVersion>
-        <Version>1.1.1</Version>
+        <Version>1.2.1</Version>
         <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     </PropertyGroup>
 
 <ItemGroup>
-  <Compile Remove="Fika\**" />
-  <Compile Remove="BossNotifier.Fika\**" />
-  <EmbeddedResource Remove="Fika\**" />
-  <EmbeddedResource Remove="BossNotifier.Fika\**" />
-  <None Remove="Fika\**" />
-  <None Remove="BossNotifier.Fika\**" />
+    <None Include="custom_bosses.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
 </ItemGroup>
 
     <ItemGroup>
         <Reference Include="Assembly-CSharp">
-            <HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll</HintPath>
+            <HintPath>F:\SPT\EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="Comfort">
-            <HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\Comfort.dll</HintPath>
+            <HintPath>F:\SPT\EscapeFromTarkov_Data\Managed\Comfort.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="UnityEngine">
-            <HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\UnityEngine.dll</HintPath>
+            <HintPath>F:\SPT\EscapeFromTarkov_Data\Managed\UnityEngine.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="UnityEngine.CoreModule">
-            <HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+            <HintPath>F:\SPT\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="UnityEngine.PhysicsModule">
-            <HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+            <HintPath>F:\SPT\EscapeFromTarkov_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="UnityEngine.TextRenderingModule">
-            <HintPath>E:\Spt\EscapeFromTarkov_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+            <HintPath>F:\SPT\EscapeFromTarkov_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="BepInEx">
-            <HintPath>E:\Spt\BepInEx\core\BepInEx.dll</HintPath>
+            <HintPath>F:\SPT\BepInEx\core\BepInEx.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="0Harmony">
-            <HintPath>E:\Spt\BepInEx\core\0Harmony.dll</HintPath>
+            <HintPath>F:\SPT\BepInEx\core\0Harmony.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="spt-reflection">
-            <HintPath>E:\Spt\BepInEx\plugins\spt\spt-reflection.dll</HintPath>
+            <HintPath>F:\SPT\BepInEx\plugins\spt\spt-reflection.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Newtonsoft.Json">
+            <HintPath>F:\SPT\EscapeFromTarkov_Data\Managed\Newtonsoft.Json.dll</HintPath>
             <Private>false</Private>
         </Reference>
     </ItemGroup>
 
-    <Target Name="PostBuild" AfterTargets="Build">
-        <MakeDir Directories="$(ProjectDir)release\BepInEx\plugins" />
-        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ProjectDir)release\BepInEx\plugins" />
-        <ZipDirectory SourceDirectory="$(ProjectDir)release" DestinationFile="$(ProjectDir)BossNotifier-$(Version).zip" Overwrite="true" />
-        <RemoveDir Directories="$(ProjectDir)release" />
-    </Target>
+<Target Name="PostBuild" AfterTargets="Build">
+    <!-- Crea la struttura corretta con sottocartella BossNotifier -->
+    <MakeDir Directories="$(ProjectDir)release\BepInEx\plugins\BossNotifier" />
+    
+    <!-- Copia DLL e JSON nella sottocartella -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ProjectDir)release\BepInEx\plugins\BossNotifier" />
+    <Copy SourceFiles="$(TargetDir)custom_bosses.json" DestinationFolder="$(ProjectDir)release\BepInEx\plugins\BossNotifier" />
+    
+    <!-- Crea ZIP -->
+    <ZipDirectory SourceDirectory="$(ProjectDir)release" DestinationFile="$(ProjectDir)BossNotifier-$(Version).zip" Overwrite="true" />
+    <RemoveDir Directories="$(ProjectDir)release" />
+</Target>
 
 </Project>

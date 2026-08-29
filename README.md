@@ -1,4 +1,4 @@
-# BossNotifier for SPT 4.0.11
+# BossNotifier for SPT 4.1.3
 
 A client mod that notifies you which bosses are present in your raid.
 
@@ -35,7 +35,7 @@ If you want to compile from source, you need these DLLs:
 ## Credits
 
 - Original mod by [Mattdokn](https://github.com/m-barneto/BossNotifier)
-- Updated for SPT 4.0.11
+- Updated for SPT 4.1.3
 
 ## License
 
