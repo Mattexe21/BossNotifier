@@ -323,6 +323,7 @@ namespace BossNotifier
             new BossLocationSpawnPatch().Enable();
             new NewGamePatch().Enable();
             new BotBossPatch().Enable();
+            new CustomBossZonePatch().Enable();
 
             // Subscribe to config changes
             Config.SettingChanged += Config_SettingChanged;
@@ -525,7 +526,7 @@ namespace BossNotifier
 
         public static Dictionary<string, string> bossesInRaid = new Dictionary<string, string>();
 
-        private static void TryAddBoss(string boss, string location)
+        internal static void TryAddBoss(string boss, string location)
         {
             if (location == null)
             {
@@ -633,6 +634,26 @@ namespace BossNotifier
         }
     }
 
+    // Custom groups are skipped by BossLocationSpawnPatch and registered on spawn with no location.
+    // This adds the zone the game picked when each member activates, so they read "located near ...".
+    public class CustomBossZonePatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod() => typeof(BotOwner).GetMethod("PreActivate");
+
+        [PatchPostfix]
+        private static void PatchPostfix(BotOwner __instance, BotZone zone)
+        {
+            if (zone == null || __instance?.Profile?.Info?.Settings == null) return;
+            if (!BossNotifierPlugin.customBossLookup.TryGetValue((int)__instance.Profile.Info.Settings.Role, out string groupName)) return;
+
+            string zoneName = BossNotifierPlugin.GetZoneName(zone.name);
+            if (string.IsNullOrEmpty(zoneName)) return;
+
+            BossLocationSpawnPatch.TryAddBoss(groupName, zoneName);
+            BossNotifierMono.Instance?.GenerateBossNotifications();
+        }
+    }
+
     // Patch for hooking when a raid is started
     internal class NewGamePatch : ModulePatch
     {
@@ -659,6 +680,11 @@ namespace BossNotifier
 
         private void LateUpdate()
         {
+            // The active camera can change mid-raid (spectator / free camera mods)
+            if (_mainCamera == null || !_mainCamera.isActiveAndEnabled)
+            {
+                _mainCamera = Camera.main;
+            }
             if (_mainCamera != null)
             {
                 transform.rotation = _mainCamera.transform.rotation;
@@ -700,8 +726,13 @@ namespace BossNotifier
         // Marker system
         private GameWorld _gameWorld;
         private Dictionary<Player, BossMarkerInfo> _bossMarkers = new Dictionary<Player, BossMarkerInfo>();
-        private bool _markersVisible = true;
+        private bool _markersShown;
         private Camera _mainCamera;
+
+        // Markers dropped mid-raid (seen with AI mods that put far bots to sleep) were only rebuilt at raid
+        // start, so a periodic resync puts them back. Each player counts toward its group only once.
+        private readonly HashSet<Player> _countedPlayers = new HashSet<Player>();
+        private float _nextMarkerResync;
 
         #region Initialization
         public static void Init()
@@ -741,7 +772,7 @@ namespace BossNotifier
         {
             _gameWorld = Singleton<GameWorld>.Instance;
             _mainCamera = Camera.main;
-            _markersVisible = BossNotifierPlugin.enableMarkers.Value;
+            _markersShown = BossNotifierPlugin.enableMarkers.Value;
 
             // Register for player spawn events
             if (_gameWorld != null)
@@ -780,6 +811,7 @@ namespace BossNotifier
                         CreateBossMarker(player, displayName ?? groupName, groupName);
 
                         // FIX: Subscribe to death event for existing bosses
+                        player.OnPlayerDeadOrUnspawn -= OnBossDeadOrUnspawn;
                         player.OnPlayerDeadOrUnspawn += OnBossDeadOrUnspawn;
 
                         RegisterCustomBossInRaid(role.Value, groupName);
@@ -822,6 +854,7 @@ namespace BossNotifier
                     CreateBossMarker(player, displayName ?? groupName, groupName);
 
                     // Subscribe to death event
+                    player.OnPlayerDeadOrUnspawn -= OnBossDeadOrUnspawn;
                     player.OnPlayerDeadOrUnspawn += OnBossDeadOrUnspawn;
 
                     RegisterCustomBossInRaid(role.Value, groupName);
@@ -878,14 +911,15 @@ namespace BossNotifier
                 UpdateMarkerPosition(markerObj, player);
 
                 // Set active based on config
-                markerObj.SetActive(_markersVisible && BossNotifierPlugin.enableMarkers.Value);
+                markerObj.SetActive(BossNotifierPlugin.enableMarkers.Value);
 
                 // Store marker info (bossName = display name, groupName = for tracking)
                 var markerInfo = new BossMarkerInfo(player, bossName, groupName, markerObj, symbolMesh, infoMesh);
                 _bossMarkers[player] = markerInfo;
 
                 // Track seen count for plural / custom groups so "all eliminated" only fires once everyone is dead
-                if (BossNotifierPlugin.pluralBosses.Contains(groupName) || BossNotifierPlugin.customBossGroups.Contains(groupName))
+                if ((BossNotifierPlugin.pluralBosses.Contains(groupName) || BossNotifierPlugin.customBossGroups.Contains(groupName))
+                    && _countedPlayers.Add(player))
                 {
                     int seen;
                     BossNotifierPlugin.groupSeenCount.TryGetValue(groupName, out seen);
@@ -962,17 +996,33 @@ namespace BossNotifier
                 SendBossNotifications();
             }
 
-            // Handle marker toggle key
+            // Handle marker toggle key. It flips the config entry itself: a separate flag let markers show
+            // while "Enable Markers" was off, and then they never moved from where the boss spawned.
             if (IsKeyPressed(BossNotifierPlugin.toggleMarkersKey.Value))
             {
-                _markersVisible = !_markersVisible;
-                ToggleAllMarkers(_markersVisible);
-                string status = _markersVisible ? "ON" : "OFF";
+                BossNotifierPlugin.enableMarkers.Value = !BossNotifierPlugin.enableMarkers.Value;
+                string status = BossNotifierPlugin.enableMarkers.Value ? "ON" : "OFF";
                 NotificationManager.DisplayMessageNotification($"Boss Markers: {status}", ENotificationDurationType.Default);
             }
 
-            // Update markers
-            if (BossNotifierPlugin.enableMarkers.Value && _markersVisible)
+            if (Time.time >= _nextMarkerResync)
+            {
+                _nextMarkerResync = Time.time + 2f;
+                InitializeExistingBossMarkers();
+            }
+        }
+
+        // Bots move during Update, so placing markers in LateUpdate keeps them on the boss without a frame of lag
+        public void LateUpdate()
+        {
+            bool enabled = BossNotifierPlugin.enableMarkers.Value;
+            if (enabled != _markersShown)
+            {
+                _markersShown = enabled;
+                ToggleAllMarkers(enabled);
+            }
+
+            if (enabled)
             {
                 UpdateAllMarkers();
             }
@@ -980,7 +1030,7 @@ namespace BossNotifier
 
         private void UpdateAllMarkers()
         {
-            if (_mainCamera == null)
+            if (_mainCamera == null || !_mainCamera.isActiveAndEnabled)
             {
                 _mainCamera = Camera.main;
                 if (_mainCamera == null) return;
